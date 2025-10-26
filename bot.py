@@ -40,6 +40,7 @@ async def save_data():
 @bot.event
 async def on_ready():
     print(f'Bot is ready as {bot.user}')
+    await bot.tree.sync()  # register slash commands with Discord
     monthly_report.start()
 
 @bot.event
@@ -102,6 +103,23 @@ async def monthly_report():
             report += "\n"
 
     await channel.send(report)
+
+# Add a slash command to trigger the report manually
+@bot.tree.command(name="makereport", description="Generate the ping report now")
+async def makereport(interaction: discord.Interaction):
+    channel = bot.get_channel(PING_LOG_CHANNEL_ID)
+    # Build report (same logic as monthly_report)
+    report = "📊 Ping Report 📊\n\n"
+    for user_id, data in ping_data.items():
+        user = bot.get_user(int(user_id))
+        if user:
+            report += f"{user.name}:\n"
+            report += f"Total pings: {data['total_pings']}\n"
+            for category, count in data['categories'].items():
+                report += f"{category}: {count}\n"
+            report += "\n"
+    # Respond to the interaction with the report (visible to the channel or just the user)
+    await interaction.response.send_message(report, ephemeral=False)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
