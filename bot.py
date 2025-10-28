@@ -11,14 +11,14 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Constants
-PING_LOG_CHANNEL_ID = 123456789  # Replace with your channel ID
-LFG_CHANNEL_IDS = [111111, 222222]  # Replace with your LFG channel IDs
+PING_LOG_CHANNEL_ID = 1432769797481042040  # Channel for pign stat outputs and notifications 660083489235795978
+LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # IDs for LotR lfg channels are 778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
-    'tank': {'role_id': 333333, 'threshold': 50},    # Replace with tank role ID
-    'healer': {'role_id': 444444, 'threshold': 50},  # Replace with healer role ID
-    'dps': {'role_id': 555555, 'threshold': 50}      # Replace with DPS role ID
+    'tank': {'role_id': 1432770068353384620, 'threshold': 2},    # Tank role
+    'healer': {'role_id': 1432770153828978809, 'threshold': 2},  # Healer role
+    'dps': {'role_id': 1432770176767754342, 'threshold': 2}      # DPS role
 }
 
 
@@ -40,7 +40,11 @@ async def save_data():
 @bot.event
 async def on_ready():
     print(f'Bot is ready as {bot.user}')
-    await bot.tree.sync()  # register slash commands with Discord
+    try:
+        synced = await bot.tree.sync()  # register slash commands with Discord
+        print(f"Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print(f"⚠️ Failed to sync commands: {e}")
     monthly_report.start()
 
 @bot.event
@@ -55,21 +59,20 @@ async def on_message(message):
         ping_data[author_id] = {
             'total_pings': 0,
             'categories': {
-                'soundless': 0,
-                'rare_spawns': 0,
-                'raids': 0,
-                'dungeons': 0
+                'tank': 0,
+                'healer': 0,
+                'dps': 0
             }
         }
 
-    # Update ping counts based on message content
-    content = message.content.lower()
-    if 'soundless' in content:
-        ping_data[author_id]['categories']['soundless'] += 1
-    if any(rare in content for rare in ['rare', 'spawn', 'world boss']):
-        ping_data[author_id]['categories']['rare_spawns'] += 1
-
-    ping_data[author_id]['total_pings'] += 1
+    # Update ping counts based on role mentions
+    for role in message.role_mentions:
+        role_id = role.id
+        # Check which role category was pinged
+        for category, data in ROLE_THRESHOLDS.items():
+            if role_id == data['role_id']:
+                ping_data[author_id]['categories'][category] += 1
+                ping_data[author_id]['total_pings'] += 1
     
     # Check thresholds
     await check_thresholds(message.author, ping_data[author_id])
@@ -81,9 +84,12 @@ async def check_thresholds(user, user_data):
     if not channel:
         return
 
-    for category, threshold in THRESHOLD_NOTIFICATIONS.items():
-        if user_data['categories'][category] == threshold:
-            await channel.send(f'🎉 {user.mention} has reached {threshold} {category} shares!')
+    for category, data in ROLE_THRESHOLDS.items():
+        if user_data['categories'][category] == data['threshold']:
+            role = user.guild.get_role(data['role_id'])
+            if role:
+                await channel.send(f'🎉 {user.mention} has reached {data["threshold"]} {category} role pings!')
+                await user.add_roles(role)
 
 @tasks.loop(hours=24*30)  # Monthly report
 async def monthly_report():
@@ -121,19 +127,32 @@ async def makereport(interaction: discord.Interaction):
     # Respond to the interaction with the report (visible to the channel or just the user)
     await interaction.response.send_message(report, ephemeral=False)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def check_stats(ctx, member: discord.Member):
-    """Check stats for a specific user"""
+@bot.tree.command(name="checkstats", description="Generate ping stats for a user")
+async def checkstats(interaction: discord.Interaction, member: discord.Member):
+
     if str(member.id) in ping_data:
         data = ping_data[str(member.id)]
         embed = discord.Embed(title=f"Stats for {member.name}", color=discord.Color.blue())
         embed.add_field(name="Total Pings", value=str(data['total_pings']))
         for category, count in data['categories'].items():
             embed.add_field(name=category.title(), value=str(count))
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
     else:
-        await ctx.send("No data found for this user.")
+        await interaction.response.send_message("No data found for this user.")
+
+bot_start_time = datetime.now()
+
+@bot.tree.command(name="uptime", description="Shows how long the bot has been running")
+async def uptime(interaction: discord.Interaction):
+    current_time = datetime.now()
+    uptime_duration = current_time - bot_start_time
+    days = uptime_duration.days
+    hours, remainder = divmod(uptime_duration.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    await interaction.response.send_message(
+        f"Bot uptime: {days}d {hours}h {minutes}m {seconds}s"
+    )
+     
 
 # Run the bot
-bot.run('YOUR_BOT_TOKEN')
+bot.run('Here-goes-the-secret-sauce_uwu')
