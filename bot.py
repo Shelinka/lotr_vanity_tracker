@@ -16,9 +16,9 @@ LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # I
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
-    'Rares': {'role_ids': [1432770068353384620, 1432810765466992660], 'threshold': 2},    # Rares (soundless, nuneaton)
-    'role2': {'role_ids': [1432770153828978809], 'threshold': 3},    # TLPD
-    'role3': {'role_ids': [1432770176767754342], 'threshold': 4}    # PvP
+    'Rares': {'role_id': [1432770068353384620, 1432810765466992660], 'threshold': 2},    # Rares (soundless, nuneaton)
+    'role2': {'role_id': [1432770153828978809], 'threshold': 3},    # TLPD
+    'role3': {'role_id': [1432770176767754342], 'threshold': 4}    # PvP
 }
 
 
@@ -70,9 +70,10 @@ async def on_message(message):
         role_id = role.id
         # Check which role category was pinged
         for category, data in ROLE_THRESHOLDS.items():
-            if role_id == data['role_ids']:
+            if role_id in data['role_id']:  # Changed from == to in to check list membership
                 ping_data[author_id]['categories'][category] += 1
                 ping_data[author_id]['total_pings'] += 1
+                break  # Break to avoid counting the same ping multiple times
     
     # Check thresholds
     await check_thresholds(message.author, ping_data[author_id])
@@ -86,9 +87,12 @@ async def check_thresholds(user, user_data):
 
     for category, data in ROLE_THRESHOLDS.items():
         if user_data['categories'][category] == data['threshold']:
-            role = user.guild.get_role(data['role_ids'])
-            if role:
-                await channel.send(f'🎉 {user.mention} has reached {data["threshold"]} {category} role pings!')
+            # Send notification for each role in the category
+            for role_id in data['role_id']:
+                role = user.guild.get_role(role_id)
+                if role:
+                    await channel.send(f'🎉 {user.mention} has reached {data["threshold"]} {category} role pings!')
+                    break  # Send only one notification per threshold reached
 
 @tasks.loop(hours=24*30)  # Monthly report
 async def monthly_report():
@@ -160,4 +164,4 @@ async def shutdown(interaction: discord.Interaction):
 
 
 # Run the bot
-bot.run('Here-goes-the-secret-sauce_uwu')    
+bot.run('token')
