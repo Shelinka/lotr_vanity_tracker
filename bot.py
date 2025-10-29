@@ -11,6 +11,27 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Command logging
+async def log_command(interaction: discord.Interaction, command_name: str):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = {
+        "user_id": str(interaction.user.id),
+        "username": str(interaction.user),
+        "command": command_name,
+        "timestamp": timestamp
+    }
+    
+    try:
+        with open('commands_log.json', 'r') as f:
+            log_data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log_data = []
+    
+    log_data.append(log_entry)
+    
+    with open('commands_log.json', 'w') as f:
+        json.dump(log_data, f, indent=4)
+
 # Constants
 PING_LOG_CHANNEL_ID = 1432769797481042040  # Channel for pign stat outputs and notifications 660083489235795978
 LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # IDs for LotR lfg channels are 778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666
@@ -117,8 +138,11 @@ async def monthly_report():
 
 # Slash commands
 
+
+
 @bot.tree.command(name="makereport", description="Generate the ping report now")
 async def makereport(interaction: discord.Interaction):
+    await log_command(interaction, "makereport")
     if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
@@ -138,6 +162,7 @@ async def makereport(interaction: discord.Interaction):
 
 @bot.tree.command(name="checkstats", description="Generate ping stats for specified user")
 async def checkstats(interaction: discord.Interaction, member: discord.Member):
+    await log_command(interaction, "checkstats")
     if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
@@ -151,10 +176,26 @@ async def checkstats(interaction: discord.Interaction, member: discord.Member):
     else:
         await interaction.response.send_message("No data found for this user.")
 
+@bot.tree.command(name="mystats", description="View your own ping statistics")
+async def mystats(interaction: discord.Interaction):
+    await log_command(interaction, "mystats")
+    user_id = str(interaction.user.id)
+    if user_id in ping_data:
+        data = ping_data[user_id]
+        embed = discord.Embed(title=f"Your Stats", color=discord.Color.blue())
+        embed.add_field(name="Total Pings", value=str(data['total_pings']))
+        for category, count in data['categories'].items():
+            embed.add_field(name=category.title(), value=str(count))
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        await interaction.response.send_message("You have no ping statistics yet.", ephemeral=True)
+
+
 bot_start_time = datetime.now()
 
 @bot.tree.command(name="uptime", description="Shows how long the bot has been running")
 async def uptime(interaction: discord.Interaction):
+    await log_command(interaction, "uptime")
     current_time = datetime.now()
     uptime_duration = current_time - bot_start_time
     days = uptime_duration.days
@@ -165,8 +206,33 @@ async def uptime(interaction: discord.Interaction):
     )
      
 
+@bot.tree.command(name="viewlogs", description="View the command usage logs")
+async def viewlogs(interaction: discord.Interaction):
+    await log_command(interaction, "viewlogs")
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+    
+    try:
+        with open('commands_log.json', 'r') as f:
+            log_data = json.load(f)
+    except FileNotFoundError:
+        return await interaction.response.send_message("No command logs found.", ephemeral=True)
+    
+    # Create a formatted message with the last 20 commands
+    log_entries = log_data[-20:]  # Get last 20 entries
+    response = "📋 **Last 20 Command Logs**\n\n"
+    
+    for entry in log_entries:
+        response += f"**Command:** /{entry['command']}\n"
+        response += f"**User:** {entry['username']} (ID: {entry['user_id']})\n"
+        response += f"**Time:** {entry['timestamp']}\n"
+        response += "─────────────────\n"
+    
+    await interaction.response.send_message(response, ephemeral=True)
+
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
+    await log_command(interaction, "shutdown")
     if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
@@ -177,6 +243,7 @@ async def shutdown(interaction: discord.Interaction):
 
 @bot.tree.command(name="export", description="Export the current stats as a JSON file")
 async def export_stats(interaction: discord.Interaction):
+    await log_command(interaction, "export")
     if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
