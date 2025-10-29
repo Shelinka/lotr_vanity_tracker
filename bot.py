@@ -159,9 +159,13 @@ async def uptime(interaction: discord.Interaction):
 
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
-    await interaction.response.send_message("Shutting down...")
+    await interaction.response.send_message("kk bye :(")
     await bot.close()
 
 
-# Run the bot
-bot.run('token')
+# Read token from .env file and start the bot
+
+with open(".env", "r") as f:
+    token = f.read().strip()
+
+bot.run(token)
