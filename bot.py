@@ -14,7 +14,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Constants
 PING_LOG_CHANNEL_ID = 1432769797481042040  # Channel for pign stat outputs and notifications 660083489235795978
 LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # IDs for LotR lfg channels are 778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666
-ADMINITARTOR_ROLES = [711224923460468826, 659740317259661372, 1433141810057969674]  # IDs of users who can use admin commands
+ADMINITARTOR_ROLES = [711224923460468826, 659740317259661372, 1433141810057969674]  # IDs of roles who can use admin commands
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
@@ -119,7 +119,7 @@ async def monthly_report():
 
 @bot.tree.command(name="makereport", description="Generate the ping report now")
 async def makereport(interaction: discord.Interaction):
-    if interaction.user.id not in ADMINITARTOR_ROLES:
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     channel = bot.get_channel(PING_LOG_CHANNEL_ID)
@@ -138,7 +138,7 @@ async def makereport(interaction: discord.Interaction):
 
 @bot.tree.command(name="checkstats", description="Generate ping stats for specified user")
 async def checkstats(interaction: discord.Interaction, member: discord.Member):
-    if interaction.user.id not in ADMINITARTOR_ROLES:
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     if str(member.id) in ping_data:
@@ -167,7 +167,7 @@ async def uptime(interaction: discord.Interaction):
 
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
-    if interaction.user.id not in ADMINITARTOR_ROLES:
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     await interaction.response.send_message("kk bye :(")
@@ -177,7 +177,7 @@ async def shutdown(interaction: discord.Interaction):
 
 @bot.tree.command(name="export", description="Export the current stats as a JSON file")
 async def export_stats(interaction: discord.Interaction):
-    if interaction.user.id not in ADMINITARTOR_ROLES:
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     json_string = json.dumps(ping_data, indent=4)
