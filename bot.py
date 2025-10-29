@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 import json
 from datetime import datetime
 import asyncio
+import io
 
 # Bot configuration
 intents = discord.Intents.default()
@@ -13,6 +14,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Constants
 PING_LOG_CHANNEL_ID = 1432769797481042040  # Channel for pign stat outputs and notifications 660083489235795978
 LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # IDs for LotR lfg channels are 778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666
+ADMINITARTOR_ROLES = [711224923460468826, 659740317259661372, 1433141810057969674]  # IDs of users who can use admin commands
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
@@ -113,9 +115,13 @@ async def monthly_report():
 
     await channel.send(report)
 
-# Add a slash command to trigger the report manually
+# Slash commands
+
 @bot.tree.command(name="makereport", description="Generate the ping report now")
 async def makereport(interaction: discord.Interaction):
+    if interaction.user.id not in ADMINITARTOR_ROLES:
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+
     channel = bot.get_channel(PING_LOG_CHANNEL_ID)
     # Build report (same logic as monthly_report)
     report = "Ping Report\n\n"
@@ -132,6 +138,8 @@ async def makereport(interaction: discord.Interaction):
 
 @bot.tree.command(name="checkstats", description="Generate ping stats for specified user")
 async def checkstats(interaction: discord.Interaction, member: discord.Member):
+    if interaction.user.id not in ADMINITARTOR_ROLES:
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     if str(member.id) in ping_data:
         data = ping_data[str(member.id)]
@@ -159,11 +167,32 @@ async def uptime(interaction: discord.Interaction):
 
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
+    if interaction.user.id not in ADMINITARTOR_ROLES:
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+
     await interaction.response.send_message("kk bye :(")
     await bot.close()
+    print(f'Script closed by {interaction.user}')
+    
 
+@bot.tree.command(name="export", description="Export the current stats as a JSON file")
+async def export_stats(interaction: discord.Interaction):
+    if interaction.user.id not in ADMINITARTOR_ROLES:
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
-# Read token from .env file and start the bot
+    json_string = json.dumps(ping_data, indent=4)
+    
+    file = discord.File(
+        fp=io.StringIO(json_string),
+        filename="ping_stats.json"
+    )
+    
+    await interaction.response.send_message(
+        "Here are the current stats:",
+        file=file,
+        ephemeral=True
+    )
+
 
 with open(".env", "r") as f:
     token = f.read().strip()
