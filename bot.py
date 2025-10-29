@@ -16,9 +16,9 @@ LFG_CHANNEL_IDS = [1432769729805811874]  # Replace with your LFG channel IDs # I
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
-    'tank': {'role_id': 1432770068353384620, 'threshold': 2},    # Tank role
-    'healer': {'role_id': 1432770153828978809, 'threshold': 2},  # Healer role
-    'dps': {'role_id': 1432770176767754342, 'threshold': 2}      # DPS role
+    'Rares': {'role_ids': [1432770068353384620, 1432810765466992660], 'threshold': 2},    # Rares (soundless, nuneaton)
+    'role2': {'role_ids': [1432770153828978809], 'threshold': 3},    # TLPD
+    'role3': {'role_ids': [1432770176767754342], 'threshold': 4}    # PvP
 }
 
 
@@ -44,8 +44,8 @@ async def on_ready():
         synced = await bot.tree.sync()  # register slash commands with Discord
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
-        print(f"⚠️ Failed to sync commands: {e}")
-    monthly_report.start()
+        print(f"Failed to sync commands: {e}")
+  #  monthly_report.start()
 
 @bot.event
 async def on_message(message):
@@ -59,9 +59,9 @@ async def on_message(message):
         ping_data[author_id] = {
             'total_pings': 0,
             'categories': {
-                'tank': 0,
-                'healer': 0,
-                'dps': 0
+                'Rares': 0,
+                'role2': 0,
+                'role3': 0
             }
         }
 
@@ -70,7 +70,7 @@ async def on_message(message):
         role_id = role.id
         # Check which role category was pinged
         for category, data in ROLE_THRESHOLDS.items():
-            if role_id == data['role_id']:
+            if role_id == data['role_ids']:
                 ping_data[author_id]['categories'][category] += 1
                 ping_data[author_id]['total_pings'] += 1
     
@@ -86,10 +86,9 @@ async def check_thresholds(user, user_data):
 
     for category, data in ROLE_THRESHOLDS.items():
         if user_data['categories'][category] == data['threshold']:
-            role = user.guild.get_role(data['role_id'])
+            role = user.guild.get_role(data['role_ids'])
             if role:
                 await channel.send(f'🎉 {user.mention} has reached {data["threshold"]} {category} role pings!')
-                await user.add_roles(role)
 
 @tasks.loop(hours=24*30)  # Monthly report
 async def monthly_report():
@@ -97,7 +96,7 @@ async def monthly_report():
     if not channel:
         return
 
-    report = "📊 Monthly Ping Report 📊\n\n"
+    report = "Monthly Ping Report \n\n"
     
     for user_id, data in ping_data.items():
         user = bot.get_user(int(user_id))
@@ -115,7 +114,7 @@ async def monthly_report():
 async def makereport(interaction: discord.Interaction):
     channel = bot.get_channel(PING_LOG_CHANNEL_ID)
     # Build report (same logic as monthly_report)
-    report = "📊 Ping Report 📊\n\n"
+    report = "Ping Report\n\n"
     for user_id, data in ping_data.items():
         user = bot.get_user(int(user_id))
         if user:
@@ -127,7 +126,7 @@ async def makereport(interaction: discord.Interaction):
     # Respond to the interaction with the report (visible to the channel or just the user)
     await interaction.response.send_message(report, ephemeral=False)
 
-@bot.tree.command(name="checkstats", description="Generate ping stats for a user")
+@bot.tree.command(name="checkstats", description="Generate ping stats for specified user")
 async def checkstats(interaction: discord.Interaction, member: discord.Member):
 
     if str(member.id) in ping_data:
@@ -154,5 +153,11 @@ async def uptime(interaction: discord.Interaction):
     )
      
 
+@bot.tree.command(name="shutdown", description="Shuts down the bot")
+async def shutdown(interaction: discord.Interaction):
+    await interaction.response.send_message("Shutting down...")
+    await bot.close()
+
+
 # Run the bot
-bot.run('Here-goes-the-secret-sauce_uwu')
+bot.run('Here-goes-the-secret-sauce_uwu')    
