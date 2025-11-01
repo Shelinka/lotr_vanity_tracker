@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 import asyncio
 import io
+import pandas as pd
 
 # Bot configuration
 intents = discord.Intents.default()
@@ -230,9 +231,9 @@ async def viewlogs(interaction: discord.Interaction):
     except FileNotFoundError:
         return await interaction.response.send_message("No command logs found.", ephemeral=True)
     
-    # Create a formatted message with the last 20 commands
-    log_entries = log_data[-20:]  # Get last 20 entries
-    response = "📋 **Last 20 Command Logs**\n\n"
+    # Create a formatted message with the last 10 commands
+    log_entries = log_data[-10:]  # Get last 10 entries
+    response = "📋 **Last 10 Command Logs**\n\n"
     
     for entry in log_entries:
         response += f"**Command:** /{entry['command']}\n"
@@ -253,24 +254,58 @@ async def shutdown(interaction: discord.Interaction):
     print(f'Script closed by {interaction.user}')
     
 
-@bot.tree.command(name="export", description="Export the current stats as a JSON file")
+@bot.tree.command(name="export", description="Export the current stats as an Excel file")
 async def export_stats(interaction: discord.Interaction):
     await log_command(interaction, "export")
     if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
-    json_string = json.dumps(ping_data, indent=4)
-    
-    file = discord.File(
-        fp=io.StringIO(json_string),
-        filename="ping_stats.json"
-    )
-    
-    await interaction.response.send_message(
-        "Here are the current stats:",
-        file=file,
-        ephemeral=True
-    )
+    try:
+        
+        # Create a list to store the data for each user
+        data_rows = []
+        
+        # Iterate through each user's data
+        for user_id, data in ping_data.items():
+            user = bot.get_user(int(user_id))
+            nickname = user.name if user else "Unknown User"
+            
+            # Create a row with user info and all category counts
+            row = {
+                'User ID': user_id,
+                'Nickname': nickname,
+                'Total Pings': data['total_pings']
+            }
+            # Add all category counts
+            row.update(data['categories'])
+            
+            data_rows.append(row)
+        
+        # Create DataFrame
+        df = pd.DataFrame(data_rows)
+        
+        # Save to BytesIO buffer
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        
+        # Create Discord file
+        file = discord.File(
+            fp=excel_buffer,
+            filename="ping_stats.xlsx"
+        )
+        
+        await interaction.response.send_message(
+            "Here are the current stats in Excel format:",
+            file=file,
+            ephemeral=True
+        )
+        
+    except Exception as e:
+        await interaction.response.send_message(
+            f"An error occurred while generating the Excel file: {str(e)}",
+            ephemeral=True
+        )
 
 
 with open(".env", "r") as f:
