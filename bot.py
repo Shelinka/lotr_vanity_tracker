@@ -1,7 +1,10 @@
 import discord
+import hashlib
+import aiohttp
 from discord.ext import commands, tasks
 import json
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 import asyncio
 import io
 import pandas as pd
@@ -37,6 +40,8 @@ async def log_command(interaction: discord.Interaction, command_name: str):
 PING_LOG_CHANNEL_ID = 660083489235795978  # Channel for pign stat outputs and notifications
 LFG_CHANNEL_IDS = [778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666]  # LFG channel IDs
 ADMINITARTOR_ROLES = [711224923460468826, 659740317259661372, 1433141810057969674]  # IDs of roles who can use admin commands
+# Icon-checking output channel (predetermined)
+LOG_CHANNEL_ID: int | None = 660083489235795978  # channel where icon matches are posted; set to None to disable
 
 # Role IDs and their corresponding thresholds
 ROLE_THRESHOLDS = {
@@ -75,7 +80,7 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
-  #  monthly_report.start()
+    #  monthly_report.start()
 
 @bot.event
 async def on_message(message):
@@ -149,6 +154,141 @@ async def monthly_report():
 
     await channel.send(report)
 
+async def get_avatar_md5(avatar_url: str | None) -> str | None:
+    """Fetch avatar asynchronously and compute MD5 hash. Returns None on failure."""
+    if not avatar_url:
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(avatar_url) as resp:
+                if resp.status != 200:
+                    return None
+                content = await resp.read()
+                return hashlib.md5(content).hexdigest()
+    except Exception:
+        # network error or similar
+        return None
+
+
+def load_icons(file_path: str = 'list.txt') -> set[str]:
+    """Load MD5 strings from list.txt (one per line) into a set."""
+    if not os.path.exists(file_path):
+        return set()
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return set(line.strip() for line in f if line.strip())
+
+
+def add_md5_to_file(md5_value: str, file_path: str = 'list.txt') -> bool:
+    """Add an MD5 signature to file_path. Returns True if added, False if it already existed."""
+    md5_value = md5_value.strip().lower()
+    if not md5_value:
+        return False
+    icons = load_icons(file_path)
+    if md5_value in icons:
+        return False
+    icons.add(md5_value)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        for i in sorted(icons):
+            f.write(i + '\n')
+    return True
+
+
+def remove_md5_from_file(md5_value: str, file_path: str = 'list.txt') -> bool:
+    """Remove an MD5 from file_path. Returns True if removed, False if not found."""
+    md5_value = md5_value.strip().lower()
+    if not md5_value:
+        return False
+    icons = load_icons(file_path)
+    if md5_value not in icons:
+        return False
+    icons.remove(md5_value)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        for i in sorted(icons):
+            f.write(i + '\n')
+    return True
+
+
+def export_icons_file(file_path: str = 'list.txt') -> bytes:
+    """Return the contents of the icons file as bytes (for sending as a file)."""
+    if not os.path.exists(file_path):
+        return b''
+    with open(file_path, 'rb') as f:
+        return f.read()
+
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """On new member join: compute avatar MD5 and post to LOG_CHANNEL_ID if it matches list.txt."""
+    try:
+        avatar = member.avatar or member.default_avatar or member.display_avatar
+        avatar_url = getattr(avatar, 'url', None)
+
+        avatar_md5 = await get_avatar_md5(avatar_url)
+        print(f"[ICON] on_member_join: member={getattr(member,'id','?')} avatar_url={avatar_url} md5={avatar_md5}")
+        if not avatar_md5:
+            return
+
+        icons = load_icons('list.txt')
+        print(f"[ICON] loaded {len(icons)} icons from list.txt")
+        if avatar_md5 not in icons:
+            print(f"[ICON] md5 {avatar_md5} not found in list.txt")
+            return
+
+        print(f"[ICON] md5 {avatar_md5} matched list.txt — delivering to LOG_CHANNEL_ID {LOG_CHANNEL_ID}")
+        if LOG_CHANNEL_ID is None:
+            print("[ICON] LOG_CHANNEL_ID is None — no notification will be sent")
+            return
+
+        channel = bot.get_channel(LOG_CHANNEL_ID) or member.guild.get_channel(LOG_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await bot.fetch_channel(LOG_CHANNEL_ID)
+            except Exception as e:
+                print(f"[ICON] failed to fetch LOG_CHANNEL_ID {LOG_CHANNEL_ID}: {e}")
+                return
+
+        if not isinstance(channel, discord.TextChannel):
+            print(f"[ICON] LOG_CHANNEL_ID {LOG_CHANNEL_ID} resolved to non-text channel: {type(channel)}")
+            return
+
+        try:
+            # Compute account age in a human-friendly form
+            created = getattr(member, 'created_at', None)
+            age_str = 'unknown'
+            if created:
+                # make sure both datetimes are timezone-aware for subtraction
+                now = datetime.now(timezone.utc)
+                if created.tzinfo is None:
+                    # treat created as UTC if naive
+                    created = created.replace(tzinfo=timezone.utc)
+                delta = now - created
+                days = delta.days
+                if days >= 365:
+                    years = days // 365
+                    months = (days % 365) // 30
+                    age_str = f"{years}y {months}m"
+                elif days >= 30:
+                    months = days // 30
+                    dd = days % 30
+                    age_str = f"{months}mo {dd}d"
+                elif days > 0:
+                    age_str = f"{days}d"
+                else:
+                    hours = delta.seconds // 3600
+                    if hours > 0:
+                        age_str = f"{hours}h"
+                    else:
+                        mins = delta.seconds // 60
+                        age_str = f"{mins}m"
+
+            # mention the user (preferred) rather than printing plain text
+            await channel.send(f":warning: {member.id} — {member.mention} — account age: {age_str} — has default icon")
+        except Exception as e:
+            print(f"[ICON] failed to send icon notice to LOG_CHANNEL_ID {LOG_CHANNEL_ID}: {e}")
+    except Exception as e:
+        print(f"[ICON] error checking member {getattr(member, 'id', 'unknown')}: {e}")
+
 # Slash commands
 
 
@@ -217,7 +357,7 @@ async def uptime(interaction: discord.Interaction):
     await interaction.response.send_message(
         f"Bot uptime: {days}d {hours}h {minutes}m {seconds}s"
     )
-     
+
 
 @bot.tree.command(name="viewlogs", description="View the command usage logs")
 async def viewlogs(interaction: discord.Interaction):
@@ -242,6 +382,87 @@ async def viewlogs(interaction: discord.Interaction):
         response += "─────────────────\n"
     
     await interaction.response.send_message(response, ephemeral=True)
+
+# Slash command: /md5 <member>
+# Returns the MD5 of the supplied member's avatar image (or default avatar).
+
+
+
+@bot.tree.command(name='md5', description="MD5 utilities: check/add/remove/list against the icons list")
+@discord.app_commands.choices(action=[
+    discord.app_commands.Choice(name='check', value='check'),
+    discord.app_commands.Choice(name='add', value='add'),
+    discord.app_commands.Choice(name='remove', value='remove'),
+    discord.app_commands.Choice(name='list', value='list'),
+])
+@discord.app_commands.describe(action='Action to perform (check/add/remove/list)', member='Member to inspect for check', value='MD5 value to add/remove')
+async def md5(interaction: discord.Interaction, action: str, member: discord.Member | None = None, value: str | None = None):
+    await log_command(interaction, "md5")
+    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+        return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+    
+    await interaction.response.defer()
+    
+    # Action-based handling
+    action = action.lower() if action else 'check'
+
+    # --- CHECK: compute avatar md5 for given member
+    if action == 'check':
+        if not member:
+            await interaction.followup.send('You must supply a member when using action `check`', ephemeral=True)
+            return
+        avatar = member.avatar or member.default_avatar or member.display_avatar
+        avatar_url = getattr(avatar, 'url', None)
+        avatar_md5 = await get_avatar_md5(avatar_url)
+        if not avatar_md5:
+            await interaction.followup.send(f'Could not fetch avatar for user {member.id}')
+            return
+        await interaction.followup.send(f'{member.id} avatar MD5: {avatar_md5}')
+        return
+
+    # --- ADD: add a new MD5 value to list.txt
+    if action == 'add':
+        if not value:
+            await interaction.followup.send('You must provide an MD5 value to add (use the `value` parameter)', ephemeral=True)
+            return
+        normalized = value.strip().lower()
+        if len(normalized) != 32 or not all(c in '0123456789abcdef' for c in normalized):
+            await interaction.followup.send('Provided value does not look like a valid MD5 (32 hex chars).', ephemeral=True)
+            return
+        added = add_md5_to_file(normalized, 'list.txt')
+        if added:
+            await interaction.followup.send(f'Added MD5 to list: {normalized}')
+        else:
+            await interaction.followup.send(f'MD5 already present: {normalized}')
+        return
+
+    # --- REMOVE: remove an MD5 value from list.txt
+    if action == 'remove':
+        if not value:
+            await interaction.followup.send('You must provide an MD5 value to remove (use the `value` parameter)', ephemeral=True)
+            return
+        normalized = value.strip().lower()
+        removed = remove_md5_from_file(normalized, 'list.txt')
+        if removed:
+            await interaction.followup.send(f'Removed MD5 from list: {normalized}')
+        else:
+            await interaction.followup.send(f'MD5 not found in list: {normalized}')
+        return
+
+    # --- LIST: export list.txt as a file
+    if action == 'list':
+        data = export_icons_file('list.txt')
+        if not data:
+            await interaction.followup.send('icons list is empty or file not found')
+            return
+        import io
+        buf = io.BytesIO(data)
+        buf.seek(0)
+        file = discord.File(fp=buf, filename='list.txt')
+        await interaction.followup.send('Here is the current icons list:', file=file)
+        return
+
+    await interaction.followup.send('Unknown action. Valid actions: check, add, remove, list', ephemeral=True)
 
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
