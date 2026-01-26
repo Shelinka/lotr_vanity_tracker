@@ -1,4 +1,5 @@
 import discord
+import discord.ui
 import hashlib
 import aiohttp
 from discord.ext import commands, tasks
@@ -216,6 +217,89 @@ def export_icons_file(file_path: str = 'list.txt') -> bytes:
         return f.read()
 
 
+async def log_ban_action(user_id: int, user_name: str, action: str, moderator_id: int, moderator_name: str):
+    """Log ban actions to bot_ban_log.txt"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] User ID: {user_id} ({user_name}) | Action: {action} | Moderator ID: {moderator_id} ({moderator_name})\n"
+    
+    with open('bot_ban_log.txt', 'a', encoding='utf-8') as f:
+        f.write(log_entry)
+
+
+class MD5ResponseView(discord.ui.View):
+    """View with Positive (ban) and Negative (flag) buttons for MD5 matches."""
+    
+    def __init__(self, member: discord.Member, timeout: int = 3600):
+        super().__init__(timeout=timeout)
+        self.member = member
+    
+    @discord.ui.button(label="Positive", style=discord.ButtonStyle.red, emoji="🚫")
+    async def positive_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Ban the user and log the action."""
+        try:
+            # Ban the user
+            await self.member.ban(reason=f"MD5 icon match - banned by {interaction.user}")
+            
+            # Log the action
+            await log_ban_action(
+                user_id=self.member.id,
+                user_name=str(self.member),
+                action="BANNED",
+                moderator_id=interaction.user.id,
+                moderator_name=str(interaction.user)
+            )
+            
+            # Send confirmation message
+            await interaction.response.send_message(
+                f"✅ User ID {self.member.id} banned by {interaction.user.mention}",
+                ephemeral=False
+            )
+            
+            # Disable the buttons after action
+            for item in self.children:
+                item.disabled = True
+            await interaction.message.edit(view=self)
+            
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to ban user: {str(e)}",
+                ephemeral=True
+            )
+    
+    @discord.ui.button(label="Negative", style=discord.ButtonStyle.green, emoji="✅")
+    async def negative_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add green_square reaction and log the action."""
+        try:
+            # Add green_square reaction
+            await interaction.message.add_reaction("🟢")
+            
+            # Log the action
+            await log_ban_action(
+                user_id=self.member.id,
+                user_name=str(self.member),
+                action="FLAGGED_NEGATIVE",
+                moderator_id=interaction.user.id,
+                moderator_name=str(interaction.user)
+            )
+            
+            # Send confirmation message
+            await interaction.response.send_message(
+                f"✅ {interaction.user.mention} marked user as not a match",
+                ephemeral=True
+            )
+            
+            # Disable the buttons after action
+            for item in self.children:
+                item.disabled = True
+            await interaction.message.edit(view=self)
+            
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to add reaction: {str(e)}",
+                ephemeral=True
+            )
+
+
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -282,8 +366,11 @@ async def on_member_join(member: discord.Member):
                         mins = delta.seconds // 60
                         age_str = f"{mins}m"
 
+            # Create view with buttons
+            view = MD5ResponseView(member)
+            
             # mention the user (preferred) rather than printing plain text
-            await channel.send(f":warning: {member.id} — {member.mention} — account age: {age_str} — has default icon")
+            await channel.send(f":warning: {member.id} — {member.mention} — account age: {age_str} — has default icon", view=view)
         except Exception as e:
             print(f"[ICON] failed to send icon notice to LOG_CHANNEL_ID {LOG_CHANNEL_ID}: {e}")
     except Exception as e:

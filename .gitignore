@@ -1,4 +1,5 @@
-ping_data.json
-commands_log.json
 .env
 roles_and_ids.xlsx
+bot_ban_log.txt
+ping_data.json
+commands_log.json
