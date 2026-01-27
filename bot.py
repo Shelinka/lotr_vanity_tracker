@@ -10,6 +10,26 @@ import asyncio
 import io
 import pandas as pd
 
+# Load configuration from .conf file
+def load_config(config_file: str = '.conf') -> dict:
+    """Load configuration from JSON file."""
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file '{config_file}' not found.")
+    except json.JSONDecodeError:
+        raise ValueError(f"Configuration file '{config_file}' contains invalid JSON.")
+
+CONFIG = load_config()
+
+# Extract configuration values
+PING_LOG_CHANNEL_ID = CONFIG['PING_LOG_CHANNEL_ID']
+LFG_CHANNEL_IDS = CONFIG['LFG_CHANNEL_IDS']
+ADMINISTRATOR_ROLES = CONFIG['ADMINISTRATOR_ROLES']
+LOG_CHANNEL_ID = CONFIG['LOG_CHANNEL_ID']
+ROLE_THRESHOLDS = CONFIG['ROLE_THRESHOLDS']
+
 # Bot configuration
 intents = discord.Intents.default()
 intents.message_content = True
@@ -37,26 +57,6 @@ async def log_command(interaction: discord.Interaction, command_name: str):
     with open('commands_log.json', 'w') as f:
         json.dump(log_data, f, indent=4)
 
-# Constants
-PING_LOG_CHANNEL_ID = 660083489235795978  # Channel for pign stat outputs and notifications
-LFG_CHANNEL_IDS = [778288621354352690, 778288573623304262, 986715171022049363, 778288662273851442, 778288798898978836, 986715510358040666]  # LFG channel IDs
-ADMINITARTOR_ROLES = [711224923460468826, 659740317259661372, 1433141810057969674]  # IDs of roles who can use admin commands
-# Icon-checking output channel (predetermined)
-LOG_CHANNEL_ID: int | None = 660083489235795978  # channel where icon matches are posted; set to None to disable
-
-# Role IDs and their corresponding thresholds
-ROLE_THRESHOLDS = {
-    'Ultra_rares': {'role_id': [687028469930131000, 687028563865632849, 687028613459214379, 687028919936876627, 687028971267031064, 687028721861001412, 660081524657487892, 939823090307850280], 'threshold': 20},  
-    'ID_sharing': {'role_id': [903969899918008410], 'threshold': 20},
-    'Rares': {'role_id': [777484092282896394, 666199077481873449, 666197795144859649, 1038892426519121990, 1038892485096775771, 753501961101246475, 753501962766647427, 748133477056249876, 753530278273744899, 758937734525091850, 748133605368266782, 781889750448865310, 855135324657549333, 855135349575516191, 939822538920427611, 1034807828432568372, 1094150532807000144, 1258021911196209172, 1260968614903939153, 1341727244124684330, 1385303579233095720, 1385304598322872542, 1359807972829696040], 'threshold': 30},
-    'Dungeons': {'role_id': [985794399067865139, 985796623433076778, 985794425944956978, 1107600943043858502, 1258022020239720611, 1258021968540860517, 1430567782163943625, 1430556629010616350], 'threshold': 20},
-    'Raids': {'role_id': [711225442325102683, 985794435440844840, 1034811690237317230, 1094149884812206131, 1150685526291120208, 1258022624240336916, 1328727728576528415], 'threshold': 20},
-    'Mythic_raids': {'role_id': [985794654098292776, 985794516202172417, 985794709412786176, 1150685197474463855, 1258022786056847420, 1328727871090593874, 1385302809771118834, 1430557202648928397], 'threshold': 20},    
-    'Glory_runs': {'role_id': [1034812108602351746, 778323337683533854, 1034811877726883910, 710542726374096998, 710542724268294185, 855145467490861098, 710542719088328746, 710542721416298638, 710540675409510460, 710540675078422609, 748134751377948693, 748132701722247188, 842315872172507177, 939822516308946954, 1034807652334714910, 1034807546361434173, 1094150371993210970, 1167469088877056060, 1258022446015971370, 1341727037324525569, 1385302843484930139, 1430556457090158693], 'threshold': 20},
-    'World_events': {'role_id': [976405965454848040, 778323490507194389, 1150684869584769044, 752275368433418310, 750979637059911743, 777484095831801866, 1034812038993690724, 856199620173365289, 1048243711261290596, 1034811852212940872, 1260966109428056094, 1170682058796970006, 1359808209677979648, 1041664703849562163], 'threshold': 40},    
-    'Secret(:': {'role_id': [711224923460468826, 659740317259661372, 1433141810057969674], 'threshold': 100}   
-}
-
 
 # Data storage
 ping_data = {}
@@ -67,6 +67,9 @@ try:
         ping_data = json.load(f)
 except FileNotFoundError:
     pass
+
+# Track recent warning messages to edit if user is banned within 5 seconds
+recent_warnings = {}  # {user_id: {"message": discord.Message, "timestamp": datetime}}
 
 # Save data function
 async def save_data():
@@ -226,6 +229,32 @@ async def log_ban_action(user_id: int, user_name: str, action: str, moderator_id
         f.write(log_entry)
 
 
+async def handle_user_banned(user_id: int, banned_by_name: str):
+    """Edit warning message if one exists for this user and they were banned within 10 seconds."""
+    if user_id not in recent_warnings:
+        return
+    
+    warning_data = recent_warnings[user_id]
+    elapsed = (datetime.now(timezone.utc) - warning_data["timestamp"]).total_seconds()
+    
+    # Only edit if within 10 seconds
+    if elapsed <= 10:
+        message = warning_data["message"]
+        try:
+            # Edit the message to remove buttons and add "removed by" info
+            new_content = message.content.replace("— has default icon", f"— has default icon — removed by {banned_by_name}")
+            await message.edit(
+                content=new_content,
+                view=None
+            )
+            print(f"[ICON] Updated warning message for banned user {user_id}")
+        except Exception as e:
+            print(f"[ICON] Failed to edit warning message: {e}")
+    
+    # Clean up
+    recent_warnings.pop(user_id, None)
+
+# MD5 bot check button helper
 class MD5ResponseView(discord.ui.View):
     """View with Positive (ban) and Negative (flag) buttons for MD5 matches."""
     
@@ -237,6 +266,9 @@ class MD5ResponseView(discord.ui.View):
     async def positive_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ban the user and log the action."""
         try:
+            # Defer the interaction immediately to avoid timeout
+            await interaction.response.defer()
+            
             # Ban the user
             await self.member.ban(reason=f"MD5 icon match - banned by {interaction.user}")
             
@@ -249,8 +281,11 @@ class MD5ResponseView(discord.ui.View):
                 moderator_name=str(interaction.user)
             )
             
-            # Send confirmation message
-            await interaction.response.send_message(
+            # Edit warning message if it exists
+            await handle_user_banned(self.member.id, str(interaction.user))
+            
+            # Send confirmation message via followup
+            await interaction.followup.send(
                 f"✅ User ID {self.member.id} banned by {interaction.user.mention}",
                 ephemeral=False
             )
@@ -261,7 +296,7 @@ class MD5ResponseView(discord.ui.View):
             await interaction.message.edit(view=self)
             
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Failed to ban user: {str(e)}",
                 ephemeral=True
             )
@@ -270,6 +305,9 @@ class MD5ResponseView(discord.ui.View):
     async def negative_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Add green_square reaction and log the action."""
         try:
+            # Defer the interaction immediately to avoid timeout
+            await interaction.response.defer()
+            
             # Add green_square reaction
             await interaction.message.add_reaction("🟢")
             
@@ -282,8 +320,8 @@ class MD5ResponseView(discord.ui.View):
                 moderator_name=str(interaction.user)
             )
             
-            # Send confirmation message
-            await interaction.response.send_message(
+            # Send confirmation message via followup
+            await interaction.followup.send(
                 f"✅ {interaction.user.mention} marked user as not a match",
                 ephemeral=True
             )
@@ -294,11 +332,28 @@ class MD5ResponseView(discord.ui.View):
             await interaction.message.edit(view=self)
             
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Failed to add reaction: {str(e)}",
                 ephemeral=True
             )
 
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    """Check if member was banned and edit warning message if so."""
+    if member.id not in recent_warnings:
+        return
+    
+    try:
+        # Check audit logs to see if this was a ban
+        async for entry in member.guild.audit_logs(limit=10, action=discord.AuditLogAction.ban):
+            if entry.target.id == member.id:
+                # Found the ban, edit the warning message
+                await handle_user_banned(member.id, str(entry.user))
+                print(f"[ICON] Detected ban for user {member.id} by {entry.user}")
+                return
+    except Exception as e:
+        print(f"[ICON] Failed to check audit log for ban: {e}")
 
 
 @bot.event
@@ -370,7 +425,13 @@ async def on_member_join(member: discord.Member):
             view = MD5ResponseView(member)
             
             # mention the user (preferred) rather than printing plain text
-            await channel.send(f":warning: {member.id} — {member.mention} — account age: {age_str} — has default icon", view=view)
+            warning_message = await channel.send(f":warning: {member.id} — {member.mention} — account age: {age_str} — has default icon", view=view)
+            
+            # Store the message reference to update if user is banned
+            recent_warnings[member.id] = {
+                "message": warning_message,
+                "timestamp": datetime.now(timezone.utc)
+            }
         except Exception as e:
             print(f"[ICON] failed to send icon notice to LOG_CHANNEL_ID {LOG_CHANNEL_ID}: {e}")
     except Exception as e:
@@ -383,7 +444,7 @@ async def on_member_join(member: discord.Member):
 @bot.tree.command(name="makereport", description="Generate the ping report now")
 async def makereport(interaction: discord.Interaction):
     await log_command(interaction, "makereport")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     channel = bot.get_channel(PING_LOG_CHANNEL_ID)
@@ -403,7 +464,7 @@ async def makereport(interaction: discord.Interaction):
 @bot.tree.command(name="checkstats", description="Generate ping stats for specified user")
 async def checkstats(interaction: discord.Interaction, member: discord.Member):
     await log_command(interaction, "checkstats")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     if str(member.id) in ping_data:
@@ -449,7 +510,7 @@ async def uptime(interaction: discord.Interaction):
 @bot.tree.command(name="viewlogs", description="View the command usage logs")
 async def viewlogs(interaction: discord.Interaction):
     await log_command(interaction, "viewlogs")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
     
     try:
@@ -485,7 +546,7 @@ async def viewlogs(interaction: discord.Interaction):
 @discord.app_commands.describe(action='Action to perform (check/add/remove/list)', member='Member to inspect for check', value='MD5 value to add/remove')
 async def md5(interaction: discord.Interaction, action: str, member: discord.Member | None = None, value: str | None = None):
     await log_command(interaction, "md5")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
     
     await interaction.response.defer()
@@ -554,7 +615,7 @@ async def md5(interaction: discord.Interaction, action: str, member: discord.Mem
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
     await log_command(interaction, "shutdown")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     await interaction.response.send_message("kk bye :(")
@@ -565,7 +626,7 @@ async def shutdown(interaction: discord.Interaction):
 @bot.tree.command(name="export", description="Export the current stats as an Excel file")
 async def export_stats(interaction: discord.Interaction):
     await log_command(interaction, "export")
-    if not any(role.id in ADMINITARTOR_ROLES for role in interaction.user.roles):
+    if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
         return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
 
     try:
