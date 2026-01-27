@@ -233,7 +233,7 @@ class MD5ResponseView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.member = member
     
-    @discord.ui.button(label="Positive", style=discord.ButtonStyle.red, emoji="🚫")
+    @discord.ui.button(label="Positive - Ban", style=discord.ButtonStyle.red, emoji="⚠️")
     async def positive_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ban the user and log the action."""
         try:
