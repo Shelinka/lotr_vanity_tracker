@@ -2,7 +2,7 @@
 
 ## Description
 
-This is a Discord bot that tracks vanity metrics and manages user roles based on achievement thresholds. The bot monitors user activity, logs commands, and automatically assigns roles based on specified criteria related to Lord of the Rings themed achievements and statistics.
+This is a Discord bot that tracks vanity metrics and manages user roles based on achievement thresholds. The bot monitors user activity, logs commands, on Lord of the Rings server.
 
 ## Installation
 
@@ -19,12 +19,7 @@ This is a Discord bot that tracks vanity metrics and manages user roles based on
 pip install -r requirements.txt
 ```
 
-If a `requirements.txt` file is not present, install the main dependencies manually:
-```bash
-pip install discord.py pandas aiohttp
-```
-
-3. Configure the bot token and channel/role IDs in `bot.py` with your Discord server settings
+3. Configure the bot token in `.env` and channel/role IDs in `.conf` with your Discord server settings
 
 4. Run the bot:
 ```bash
@@ -33,4 +28,5 @@ python bot.py
 
 ## Future Improvements
 
-<!-- Add planned features and improvements here -->
+Configurable metrics (right now it's all manual .conf setup in the root directory, wanna at some point streamline it but ¯\(°_o)/¯ yolo)
+Custom bot status for funzies (maybe with uptime as a game time, i dunno..)
