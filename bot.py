@@ -29,6 +29,7 @@ LFG_CHANNEL_IDS = CONFIG['LFG_CHANNEL_IDS']
 ADMINISTRATOR_ROLES = CONFIG['ADMINISTRATOR_ROLES']
 LOG_CHANNEL_ID = CONFIG['LOG_CHANNEL_ID']
 ROLE_THRESHOLDS = CONFIG['ROLE_THRESHOLDS']
+ROLES_EXCEPTIONS = CONFIG.get('ROLES_EXCEPTIONS', [])  # Roles that should not be removed by rolepurge
 
 # Bot configuration
 intents = discord.Intents.default()
@@ -622,6 +623,91 @@ async def shutdown(interaction: discord.Interaction):
     await bot.close()
     print(f'Script closed by {interaction.user}')
     
+
+@bot.tree.command(name="rolepurge", description="Remove all roles except exceptions")
+@discord.app_commands.choices(action=[
+    discord.app_commands.Choice(name='user', value='user'),
+    discord.app_commands.Choice(name='myroles', value='myroles'),
+])
+@discord.app_commands.describe(action='Action to perform (user/myroles)', user_id='User ID to purge roles from (required for user action)')
+async def rolepurge(interaction: discord.Interaction, action: str, user_id: str | None = None):
+    """Remove all roles from a user or requester, except those in ROLES_EXCEPTIONS."""
+    await log_command(interaction, "rolepurge")
+    
+    action = action.lower() if action else 'myroles'
+    
+    # --- USER ACTION: requires admin role
+    if action == 'user':
+        if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
+            return await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        
+        if not user_id:
+            return await interaction.response.send_message('You must provide a user ID when using action `user`', ephemeral=True)
+        
+        try:
+            target_user_id = int(user_id)
+        except ValueError:
+            return await interaction.response.send_message('Invalid user ID format. Please provide a numeric user ID.', ephemeral=True)
+        
+        try:
+            member = await interaction.guild.fetch_member(target_user_id)
+        except discord.NotFound:
+            return await interaction.response.send_message(f'User with ID {target_user_id} not found in this server.', ephemeral=True)
+        except Exception as e:
+            return await interaction.response.send_message(f'Error fetching user: {str(e)}', ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        # Remove all roles except those in ROLES_EXCEPTIONS
+        roles_to_remove = [role for role in member.roles if role.id not in ROLES_EXCEPTIONS and role != interaction.guild.default_role]
+        
+        if not roles_to_remove:
+            await interaction.followup.send(f'User {member.mention} has no removable roles.', ephemeral=True)
+            return
+        
+        try:
+            for role in roles_to_remove:
+                await member.remove_roles(role, reason=f"Rolepurge executed by {interaction.user}")
+            
+            removed_names = ', '.join([role.name for role in roles_to_remove])
+            await interaction.followup.send(
+                f'✅ Removed {len(roles_to_remove)} role(s) from {member.mention}: {removed_names}',
+                ephemeral=False
+            )
+        except Exception as e:
+            await interaction.followup.send(f'❌ Error removing roles: {str(e)}', ephemeral=True)
+        
+        return
+    
+    # --- MYROLES ACTION: executable by anyone, only affects requester
+    if action == 'myroles':
+        member = interaction.user
+        
+        await interaction.response.defer()
+        
+        # Remove all roles except those in ROLES_EXCEPTIONS
+        roles_to_remove = [role for role in member.roles if role.id not in ROLES_EXCEPTIONS and role != interaction.guild.default_role]
+        
+        if not roles_to_remove:
+            await interaction.followup.send('You have no removable roles.', ephemeral=True)
+            return
+        
+        try:
+            for role in roles_to_remove:
+                await member.remove_roles(role, reason="User executed rolepurge myroles")
+            
+            removed_names = ', '.join([role.name for role in roles_to_remove])
+            await interaction.followup.send(
+                f'✅ Removed {len(roles_to_remove)} role(s) from you: {removed_names}',
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(f'❌ Error removing roles: {str(e)}', ephemeral=True)
+        
+        return
+    
+    await interaction.response.send_message('Unknown action. Valid actions: user, myroles', ephemeral=True)
+
 
 @bot.tree.command(name="export", description="Export the current stats as an Excel file")
 async def export_stats(interaction: discord.Interaction):
