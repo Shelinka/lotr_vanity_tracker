@@ -85,6 +85,21 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+    
+    # Re-add persistent views for any active warning messages
+    try:
+        for user_id, warning_data in list(recent_warnings.items()):
+            if 'member' in warning_data:
+                member = warning_data['member']
+                bot.add_view(MD5ResponseView(member))
+                print(f"[ICON] Re-attached view for warning message user {user_id}")
+    except Exception as e:
+        print(f"[ICON] Error re-attaching views on ready: {e}")
+    
+    # Start the presence update task
+    if not update_presence.is_running():
+        update_presence.start()
+        print("[PRESENCE] Uptime presence task started")
     #  monthly_report.start()
 
 @bot.event
@@ -139,6 +154,22 @@ async def check_thresholds(user, user_data):
                 if role:
                     await channel.send(f'🎉 {user.mention} has reached {data["threshold"]} {category} role pings!')
                     break  # Send only one notification per threshold reached
+
+@tasks.loop(seconds=30)  # Update presence every 30 seconds
+async def update_presence():
+    """Update bot presence to show current uptime."""
+    try:
+        current_time = datetime.now()
+        uptime_duration = current_time - bot_start_time
+        days = uptime_duration.days
+        hours, remainder = divmod(uptime_duration.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        uptime_str = f"Uptime: {days}d {hours}h {minutes}m {seconds}s"
+        activity = discord.Activity(type=discord.ActivityType.watching, name=uptime_str)
+        await bot.change_presence(activity=activity)
+    except Exception as e:
+        print(f"[PRESENCE] Error updating presence: {e}")
 
 @tasks.loop(hours=24*30)  # Monthly report
 async def monthly_report():
@@ -259,11 +290,11 @@ async def handle_user_banned(user_id: int, banned_by_name: str):
 class MD5ResponseView(discord.ui.View):
     """View with Positive (ban) and Negative (flag) buttons for MD5 matches."""
     
-    def __init__(self, member: discord.Member, timeout: int = 3600):
-        super().__init__(timeout=timeout)
+    def __init__(self, member: discord.Member, timeout: int | None = None):
+        super().__init__(timeout=timeout)  # timeout=None means buttons never expire
         self.member = member
     
-    @discord.ui.button(label="Positive - Ban", style=discord.ButtonStyle.red, emoji="⚠️")
+    @discord.ui.button(label="Positive - Ban", style=discord.ButtonStyle.red, emoji="⚠️", custom_id="md5_positive_ban")
     async def positive_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ban the user and log the action."""
         try:
@@ -291,10 +322,8 @@ class MD5ResponseView(discord.ui.View):
                 ephemeral=False
             )
             
-            # Disable the buttons after action
-            for item in self.children:
-                item.disabled = True
-            await interaction.message.edit(view=self)
+            # Remove the buttons after action
+            await interaction.message.edit(view=None)
             
         except Exception as e:
             await interaction.followup.send(
@@ -302,7 +331,7 @@ class MD5ResponseView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Negative", style=discord.ButtonStyle.green, emoji="✅")
+    @discord.ui.button(label="Negative", style=discord.ButtonStyle.green, emoji="✅", custom_id="md5_negative_flag")
     async def negative_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Add green_square reaction and log the action."""
         try:
@@ -327,10 +356,8 @@ class MD5ResponseView(discord.ui.View):
                 ephemeral=True
             )
             
-            # Disable the buttons after action
-            for item in self.children:
-                item.disabled = True
-            await interaction.message.edit(view=self)
+            # Remove the buttons after action
+            await interaction.message.edit(view=None)
             
         except Exception as e:
             await interaction.followup.send(
@@ -431,7 +458,8 @@ async def on_member_join(member: discord.Member):
             # Store the message reference to update if user is banned
             recent_warnings[member.id] = {
                 "message": warning_message,
-                "timestamp": datetime.now(timezone.utc)
+                "timestamp": datetime.now(timezone.utc),
+                "member": member  # Store member for view persistence on bot restart
             }
         except Exception as e:
             print(f"[ICON] failed to send icon notice to LOG_CHANNEL_ID {LOG_CHANNEL_ID}: {e}")
