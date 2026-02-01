@@ -100,6 +100,11 @@ async def on_ready():
     if not update_presence.is_running():
         update_presence.start()
         print("[PRESENCE] Uptime presence task started")
+    
+    # Start the periodic ban check task
+    if not check_recent_bans.is_running():
+        check_recent_bans.start()
+        print("[ICON] Periodic ban check task started")
     #  monthly_report.start()
 
 @bot.event
@@ -170,6 +175,42 @@ async def update_presence():
         await bot.change_presence(activity=activity)
     except Exception as e:
         print(f"[PRESENCE] Error updating presence: {e}")
+
+@tasks.loop(seconds=1)  # Check for bans every 1 second
+async def check_recent_bans():
+    """Periodically check if users in recent_warnings have been banned."""
+    try:
+        for user_id, warning_data in list(recent_warnings.items()):
+            elapsed = (datetime.now(timezone.utc) - warning_data["timestamp"]).total_seconds()
+            
+            # Stop checking after 10 seconds
+            if elapsed > 10:
+                recent_warnings.pop(user_id, None)
+                continue
+            
+            # Check if user is still in the guild
+            member = warning_data.get("member")
+            if member and member.guild:
+                try:
+                    # Try to fetch the user from the guild
+                    fetched_member = await member.guild.fetch_member(user_id)
+                except discord.NotFound:
+                    # User is no longer in the guild (likely banned/removed)
+                    # Check the audit log to find who banned them
+                    try:
+                        async for entry in member.guild.audit_logs(limit=10, action=discord.AuditLogAction.ban):
+                            if entry.target.id == user_id:
+                                await handle_user_banned(user_id, str(entry.user))
+                                print(f"[ICON] Detected ban for user {user_id} by {entry.user} (via periodic check)")
+                                break
+                    except Exception as e:
+                        print(f"[ICON] Failed to check audit log in periodic check: {e}")
+                    # Clean up even if we couldn't find the audit log entry
+                    recent_warnings.pop(user_id, None)
+                except Exception as e:
+                    print(f"[ICON] Error checking member {user_id} in periodic ban check: {e}")
+    except Exception as e:
+        print(f"[ICON] Error in periodic ban check task: {e}")
 
 @tasks.loop(hours=24*30)  # Monthly report
 async def monthly_report():
