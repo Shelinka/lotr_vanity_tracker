@@ -317,11 +317,15 @@ class MD5ResponseView(discord.ui.View):
             await handle_user_banned(self.member.id, str(interaction.user))
             
             # Send confirmation message via followup
+            # Add red-square reaction to the original warning message
+            await interaction.message.add_reaction("🟥")
+
+            # Send ephemeral confirmation message via followup
             await interaction.followup.send(
                 f"✅ User ID {self.member.id} banned by {interaction.user.mention}",
-                ephemeral=False
+                ephemeral=True
             )
-            
+
             # Remove the buttons after action
             await interaction.message.edit(view=None)
             
