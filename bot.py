@@ -168,9 +168,9 @@ async def update_presence():
         uptime_duration = current_time - bot_start_time
         days = uptime_duration.days
         hours, remainder = divmod(uptime_duration.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
+        minutes, _ = divmod(remainder, 60)
         
-        uptime_str = f"Uptime: {days}d {hours}h {minutes}m {seconds}s"
+        uptime_str = f"Uptime: {days}d {hours}h {minutes}m"
         activity = discord.Activity(type=discord.ActivityType.watching, name=uptime_str)
         await bot.change_presence(activity=activity)
     except Exception as e:
