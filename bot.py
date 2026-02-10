@@ -363,7 +363,7 @@ class MD5ResponseView(discord.ui.View):
 
             # Send ephemeral confirmation message via followup
             await interaction.followup.send(
-                f"✅ User ID {self.member.id} banned by {interaction.user.mention}",
+                f"✅ User ID {self.member.id} banned",
                 ephemeral=True
             )
 
@@ -397,7 +397,7 @@ class MD5ResponseView(discord.ui.View):
             
             # Send confirmation message via followup
             await interaction.followup.send(
-                f"✅ {interaction.user.mention} marked user as not a match",
+                f"✅ User marked as not a match",
                 ephemeral=True
             )
             
