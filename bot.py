@@ -30,6 +30,8 @@ ADMINISTRATOR_ROLES = CONFIG['ADMINISTRATOR_ROLES']
 LOG_CHANNEL_ID = CONFIG['LOG_CHANNEL_ID']
 ROLE_THRESHOLDS = CONFIG['ROLE_THRESHOLDS']
 ROLES_EXCEPTIONS = CONFIG.get('ROLES_EXCEPTIONS', [])  # Roles that should not be removed by rolepurge
+MD5_CHECK_STATUS = CONFIG['MD5_CHECK_STATUS']
+MD5_ACC_AGE_NOTIFICATION_LIMIT = CONFIG['MD5_ACC_AGE_NOTIFICATION_LIMIT']
 
 # Bot configuration
 intents = discord.Intents.default()
@@ -433,6 +435,11 @@ async def on_member_remove(member: discord.Member):
 async def on_member_join(member: discord.Member):
     """On new member join: compute avatar MD5 and post to LOG_CHANNEL_ID if it matches list.txt."""
     try:
+        # Check if MD5 checking is enabled
+        if not MD5_CHECK_STATUS:
+            print(f"[ICON] MD5 checking is disabled (MD5_CHECK_STATUS=False)")
+            return
+        
         avatar = member.avatar or member.default_avatar or member.display_avatar
         avatar_url = getattr(avatar, 'url', None)
 
@@ -468,6 +475,7 @@ async def on_member_join(member: discord.Member):
             # Compute account age in a human-friendly form
             created = getattr(member, 'created_at', None)
             age_str = 'unknown'
+            age_days = None
             if created:
                 # make sure both datetimes are timezone-aware for subtraction
                 now = datetime.now(timezone.utc)
@@ -476,6 +484,7 @@ async def on_member_join(member: discord.Member):
                     created = created.replace(tzinfo=timezone.utc)
                 delta = now - created
                 days = delta.days
+                age_days = days
                 if days >= 365:
                     years = days // 365
                     months = (days % 365) // 30
@@ -493,6 +502,11 @@ async def on_member_join(member: discord.Member):
                     else:
                         mins = delta.seconds // 60
                         age_str = f"{mins}m"
+            
+            # Check if account age exceeds notification limit
+            if age_days is not None and age_days >= MD5_ACC_AGE_NOTIFICATION_LIMIT:
+                print(f"[ICON] Account age ({age_days} days) exceeds notification limit ({MD5_ACC_AGE_NOTIFICATION_LIMIT} days) - skipping notification")
+                return
 
             # Create view with buttons
             view = MD5ResponseView(member)
@@ -610,14 +624,16 @@ async def viewlogs(interaction: discord.Interaction):
 
 
 
-@bot.tree.command(name='md5', description="MD5 utilities: check/add/remove/list against the icons list")
+@bot.tree.command(name='md5', description="MD5 utilities: check/add/remove/list/status/acc_age against the icons list")
 @discord.app_commands.choices(action=[
     discord.app_commands.Choice(name='check', value='check'),
     discord.app_commands.Choice(name='add', value='add'),
     discord.app_commands.Choice(name='remove', value='remove'),
     discord.app_commands.Choice(name='list', value='list'),
+    discord.app_commands.Choice(name='status', value='status'),
+    discord.app_commands.Choice(name='acc_age', value='acc_age'),
 ])
-@discord.app_commands.describe(action='Action to perform (check/add/remove/list)', member='Member to inspect for check', value='MD5 value to add/remove')
+@discord.app_commands.describe(action='Action to perform (check/add/remove/list/status/acc_age)', member='Member to inspect for check', value='MD5 value to add/remove, "on"/"off" for status, or number of days for acc_age')
 async def md5(interaction: discord.Interaction, action: str, member: discord.Member | None = None, value: str | None = None):
     await log_command(interaction, "md5")
     if not any(role.id in ADMINISTRATOR_ROLES for role in interaction.user.roles):
@@ -684,7 +700,65 @@ async def md5(interaction: discord.Interaction, action: str, member: discord.Mem
         await interaction.followup.send('Here is the current icons list:', file=file)
         return
 
-    await interaction.followup.send('Unknown action. Valid actions: check, add, remove, list', ephemeral=True)
+    # --- STATUS: toggle MD5_CHECK_STATUS on/off
+    if action == 'status':
+        if not value:
+            # Show current status
+            status_text = "enabled" if MD5_CHECK_STATUS else "disabled"
+            await interaction.followup.send(f'MD5 checking is currently {status_text}. Use value "on" or "off" to change it.')
+            return
+        
+        normalized_value = value.strip().lower()
+        if normalized_value in ['on', 'true', '1', 'yes']:
+            new_status = True
+        elif normalized_value in ['off', 'false', '0', 'no']:
+            new_status = False
+        else:
+            await interaction.followup.send('Invalid value. Use "on" or "off".', ephemeral=True)
+            return
+        
+        # Update the global variable
+        global MD5_CHECK_STATUS
+        MD5_CHECK_STATUS = new_status
+        
+        # Update the config file
+        CONFIG['MD5_CHECK_STATUS'] = new_status
+        with open('.conf', 'w') as f:
+            json.dump(CONFIG, f, indent=4)
+        
+        status_text = "enabled" if new_status else "disabled"
+        await interaction.followup.send(f'✅ MD5 checking {status_text}')
+        return
+
+    # --- ACC_AGE: set MD5_ACC_AGE_NOTIFICATION_LIMIT
+    if action == 'acc_age':
+        if not value:
+            # Show current limit
+            await interaction.followup.send(f'Current account age notification limit: {MD5_ACC_AGE_NOTIFICATION_LIMIT} days. Provide a number to change it.')
+            return
+        
+        try:
+            new_limit = int(value.strip())
+            if new_limit < 0:
+                await interaction.followup.send('Age limit must be a non-negative number.', ephemeral=True)
+                return
+        except ValueError:
+            await interaction.followup.send('Invalid number. Please provide a valid number of days.', ephemeral=True)
+            return
+        
+        # Update the global variable
+        global MD5_ACC_AGE_NOTIFICATION_LIMIT
+        MD5_ACC_AGE_NOTIFICATION_LIMIT = new_limit
+        
+        # Update the config file
+        CONFIG['MD5_ACC_AGE_NOTIFICATION_LIMIT'] = new_limit
+        with open('.conf', 'w') as f:
+            json.dump(CONFIG, f, indent=4)
+        
+        await interaction.followup.send(f'✅ Account age notification limit set to {new_limit} days')
+        return
+
+    await interaction.followup.send('Unknown action. Valid actions: check, add, remove, list, status, acc_age', ephemeral=True)
 
 @bot.tree.command(name="shutdown", description="Shuts down the bot")
 async def shutdown(interaction: discord.Interaction):
