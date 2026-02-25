@@ -641,6 +641,10 @@ async def md5(interaction: discord.Interaction, action: str, member: discord.Mem
     
     await interaction.response.defer()
     
+    # Declare global variables at the start of the function
+    global MD5_CHECK_STATUS
+    global MD5_ACC_AGE_NOTIFICATION_LIMIT
+    
     # Action-based handling
     action = action.lower() if action else 'check'
 
@@ -718,7 +722,6 @@ async def md5(interaction: discord.Interaction, action: str, member: discord.Mem
             return
         
         # Update the global variable
-        global MD5_CHECK_STATUS
         MD5_CHECK_STATUS = new_status
         
         # Update the config file
@@ -747,7 +750,6 @@ async def md5(interaction: discord.Interaction, action: str, member: discord.Mem
             return
         
         # Update the global variable
-        global MD5_ACC_AGE_NOTIFICATION_LIMIT
         MD5_ACC_AGE_NOTIFICATION_LIMIT = new_limit
         
         # Update the config file
